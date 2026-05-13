@@ -1,0 +1,35 @@
+# Environment
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+venv/
+.venv/
+env/
+
+# Bot runtime artefacts
+qr_*.png
+backup_*.cfg
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Replit
+.replit
+replit.nix
+.local/
+.config/
+.upm/
