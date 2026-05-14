@@ -1,15 +1,8 @@
 import os
 import time
-from mcp import mcp
-from nodes import get_nodes
-
-
-def _ssh(node_id, cmd):
-    r = mcp("execute_ssh", {"nodeId": node_id, "command": cmd})
-    try:
-        return r["result"]["content"][0]["text"], None
-    except Exception as e:
-        return None, str(r.get("error", e))
+from mcp import api_ssh
+from mcp import api_get_nodes
+from events import log_event
 
 
 def backup_node(node_id, node_name, node_type, paths):
@@ -19,22 +12,24 @@ def backup_node(node_id, node_name, node_type, paths):
     else:
         cmd = "cat /usr/local/etc/xray/config.json 2>/dev/null || cat /etc/xray/config.json 2>/dev/null"
 
-    content, err = _ssh(node_id, cmd)
+    content, err = api_ssh(node_id, cmd)
     if err or not content:
+        log_event("ssh_error", node_name, f"backup: {err}")
         return None, f"SSH error: {err}"
 
     safe_name = node_name.replace(" ", "_")
-    ts = time.strftime("%Y%m%d_%H%M%S")
-    filename = f"backup_{safe_name}_{ts}.cfg"
+    ts        = time.strftime("%Y%m%d_%H%M%S")
+    filename  = f"/tmp/backup_{safe_name}_{ts}.cfg"
 
     with open(filename, "w", encoding="utf-8") as f:
         f.write(content)
 
+    log_event("backup", node_name, filename)
     return filename, None
 
 
 def backup_all():
-    nodes = get_nodes()
+    nodes = api_get_nodes()
     if not nodes:
         return [], "❌ No nodes found"
 
@@ -42,14 +37,14 @@ def backup_all():
     lines = []
     for node in nodes:
         node_id = node["_id"]
-        name = node.get("name", "?")
-        ntype = node.get("type", "hysteria")
-        paths = node.get("paths", {})
+        name    = node.get("name", "?")
+        ntype   = node.get("type", "hysteria")
+        paths   = node.get("paths", {})
 
         path, err = backup_node(node_id, name, ntype, paths)
         if path:
             files.append(path)
-            lines.append(f"✅ {name} → {path}")
+            lines.append(f"✅ {name} → {os.path.basename(path)}")
         else:
             lines.append(f"❌ {name}: {err}")
 
@@ -72,8 +67,9 @@ def reinstall_node(node_id, node_type):
             " @ install 2>&1 | tail -8"
         )
 
-    output, err = _ssh(node_id, cmd)
+    output, err = api_ssh(node_id, cmd)
     if err:
+        log_event("ssh_error", node_id, f"reinstall: {err}")
         return False, f"❌ SSH error: {err}"
 
     return True, f"🔧 Reinstall output:\n```\n{(output or '')[:600]}\n```"
