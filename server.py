@@ -3,11 +3,10 @@ SSH-based physical server monitoring.
 Groups nodes by IP so each real server is queried only once.
 """
 
-import json
-from mcp import mcp
-from nodes import get_nodes
+from mcp import api_ssh, api_get_nodes
+from events import log_event
 
-# ── SSH helpers ────────────────────────────────────────────────────────────────
+# ── Stats command ───────────────────────────────────────────────────────────────
 
 _STATS_CMD = r"""
 cpu=$(top -bn1 2>/dev/null | grep 'Cpu(s)' | \
@@ -20,17 +19,7 @@ echo "CPU:${cpu:-?}%|MEM:${mem:-?}|DISK:${disk:-?}|LOAD:${load:-?}|UP:${up:-?}"
 """
 
 
-def _ssh(node_id: str, cmd: str) -> tuple[str | None, str | None]:
-    r = mcp("execute_ssh", {"nodeId": node_id, "command": cmd})
-    try:
-        out = r["result"]["content"][0]["text"].strip()
-        return out, None
-    except Exception:
-        return None, str(r.get("error", "unknown error"))
-
-
 def _parse_stats(raw: str) -> dict:
-    """Parse the stats one-liner output into a dict."""
     result = {}
     for part in raw.split("|"):
         if ":" in part:
@@ -39,11 +28,8 @@ def _parse_stats(raw: str) -> dict:
     return result
 
 
-# ── Public API ─────────────────────────────────────────────────────────────────
-
 def get_unique_server_nodes() -> list[dict]:
-    """Return one node per unique physical IP (to avoid querying same box twice)."""
-    nodes = get_nodes()
+    nodes = api_get_nodes()
     seen: dict[str, dict] = {}
     for n in nodes:
         ip = n.get("ip", "")
@@ -53,7 +39,7 @@ def get_unique_server_nodes() -> list[dict]:
 
 
 def get_server_stats_raw(node_id: str) -> tuple[dict | None, str | None]:
-    out, err = _ssh(node_id, _STATS_CMD)
+    out, err = api_ssh(node_id, _STATS_CMD)
     if err or not out:
         return None, err
     return _parse_stats(out), None
@@ -64,30 +50,30 @@ def format_server_stats() -> str:
     if not servers:
         return "❌ No nodes found"
 
-    text = "🖥 SERVER RESOURCES\n\n"
+    text     = "🖥 SERVER RESOURCES\n\n"
+    all_nodes = api_get_nodes()
+
     for node in servers:
         node_id = node["_id"]
-        ip = node.get("ip", "?")
-        # figure out flag from node names that share this IP
-        all_nodes = get_nodes()
-        names = [n.get("name", "") for n in all_nodes if n.get("ip") == ip]
-        flag = "🇫🇮" if any("fi" in nm.lower() for nm in names) else "🇩🇪"
+        ip      = node.get("ip", "?")
+        names   = [n.get("name", "") for n in all_nodes if n.get("ip") == ip]
+        flag    = "🇫🇮" if any("fi" in nm.lower() for nm in names) else "🇩🇪"
 
         stats, err = get_server_stats_raw(node_id)
         if err or not stats:
+            log_event("ssh_error", ip, f"server stats: {err}")
             text += f"{flag} {ip}\n   ❌ SSH error: {err}\n\n"
             continue
 
-        cpu_str = stats.get("CPU", "?")
-        mem_str = stats.get("MEM", "?")
+        cpu_str  = stats.get("CPU", "?")
+        mem_str  = stats.get("MEM", "?")
         disk_str = stats.get("DISK", "?")
         load_str = stats.get("LOAD", "?")
-        up_str = stats.get("UP", "?")
+        up_str   = stats.get("UP", "?")
 
-        # Colour indicators
         try:
             cpu_val = float(cpu_str.replace("%", ""))
-            cpu_em = "🔴" if cpu_val > 85 else ("🟡" if cpu_val > 60 else "🟢")
+            cpu_em  = "🔴" if cpu_val > 85 else ("🟡" if cpu_val > 60 else "🟢")
         except Exception:
             cpu_em = "⚪"
 
@@ -104,22 +90,22 @@ def format_server_stats() -> str:
 
 
 def ssh_command(node_id: str, cmd: str) -> str:
-    out, err = _ssh(node_id, cmd)
+    out, err = api_ssh(node_id, cmd)
     if err:
+        log_event("ssh_error", node_id, cmd[:80])
         return f"❌ SSH error: {err}"
     return out or "(no output)"
 
 
 def reboot_server(node_id: str) -> tuple[bool, str]:
-    _, err = _ssh(node_id, "shutdown -r +0 2>/dev/null || reboot")
+    _, err = api_ssh(node_id, "shutdown -r +0 2>/dev/null || reboot")
     if err:
         return False, f"❌ Reboot failed: {err}"
     return True, "♻️ Reboot command sent"
 
 
 def get_disk_usage_pct(node_id: str) -> float | None:
-    """Return disk usage % for / partition, or None on error."""
-    out, err = _ssh(node_id, "df / | tail -1 | awk '{print $5}' | tr -d '%'")
+    out, err = api_ssh(node_id, "df / | tail -1 | awk '{print $5}' | tr -d '%'")
     if err or not out:
         return None
     try:
@@ -129,7 +115,7 @@ def get_disk_usage_pct(node_id: str) -> float | None:
 
 
 def get_cpu_pct(node_id: str) -> float | None:
-    out, err = _ssh(
+    out, err = api_ssh(
         node_id,
         r"top -bn1 | grep 'Cpu(s)' | awk '{for(i=1;i<=NF;i++) if($(i+1)~/id/) "
         r"{gsub(/[^0-9.]/,\"\",$i); printf \"%.1f\", 100-$i; exit}}'",
