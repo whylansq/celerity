@@ -1,20 +1,13 @@
-cat > /opt/opsbot/events.py << 'EOF'
-"""
-SQLite-backed event log.
-"""
-
 import sqlite3
 import time
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent / "events.db"
 
-
-def _conn() -> sqlite3.Connection:
+def _conn():
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     return conn
-
 
 def init_db():
     with _conn() as conn:
@@ -30,8 +23,7 @@ def init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_ts ON events(ts)")
         conn.commit()
 
-
-def log_event(event_type: str, node: str | None = None, detail: str | None = None):
+def log_event(event_type, node=None, detail=None):
     try:
         with _conn() as conn:
             conn.execute(
@@ -42,8 +34,7 @@ def log_event(event_type: str, node: str | None = None, detail: str | None = Non
     except Exception as e:
         print(f"[EVENTS] log error: {e}")
 
-
-def get_recent(limit: int = 30, event_type: str | None = None) -> list[dict]:
+def get_recent(limit=30, event_type=None):
     try:
         with _conn() as conn:
             if event_type:
@@ -53,42 +44,23 @@ def get_recent(limit: int = 30, event_type: str | None = None) -> list[dict]:
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT * FROM events ORDER BY ts DESC LIMIT ?",
-                    (limit,),
+                    "SELECT * FROM events ORDER BY ts DESC LIMIT ?", (limit,)
                 ).fetchall()
             return [dict(r) for r in rows]
     except Exception:
         return []
 
-
-def format_events(limit: int = 20) -> str:
+def format_events(limit=20):
     rows = get_recent(limit)
     if not rows:
-        return "📋 История событий пуста"
-
-    lines = [f"📋 ИСТОРИЯ СОБЫТИЙ (последние {limit})\n"]
+        return "История событий пуста"
+    lines = ["ИСТОРИЯ СОБЫТИЙ"]
     for r in rows:
-        ts  = time.strftime("%d.%m %H:%M", time.localtime(r["ts"]))
-        et  = r["event_type"]
-        nd  = f" [{r['node']}]" if r.get("node") else ""
-        det = f" — {r['detail']}" if r.get("detail") else ""
-
-        icon = {
-            "node_down":    "🔴",
-            "node_up":      "🟢",
-            "node_restart": "🔄",
-            "spike":        "🚨",
-            "user_create":  "➕",
-            "user_delete":  "🗑",
-            "auth_fail":    "⛔",
-            "ssh_error":    "💻❌",
-            "backup":       "💾",
-        }.get(et, "•")
-
-        lines.append(f"{icon} {ts}{nd} {et}{det}")
-
+        ts = time.strftime("%d.%m %H:%M", time.localtime(r["ts"]))
+        et = r["event_type"]
+        nd = (" [" + r["node"] + "]") if r.get("node") else ""
+        det = (" - " + r["detail"]) if r.get("detail") else ""
+        lines.append(ts + nd + " " + et + det)
     return "\n".join(lines)
 
-
 init_db()
-EOF
