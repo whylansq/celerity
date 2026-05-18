@@ -1,30 +1,36 @@
 from telegram import ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
 
-# ── Bottom reply keyboard ──────────────────────────────────────────────────────
+# ── Main reply keyboard ────────────────────────────────────────────────────────
+# Убраны: "📡 Статус" (дубль OPS), "⚡ Действия" (перенесено в Настройки)
 
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     [
-        ["📡 Статус", "➕ Добавить юзера", "📅 Отчёт"],
+        ["➕ Добавить юзера", "📅 Отчёт"],
         ["🧠 OPS", "👥 Юзеры", "📊 Аналитика"],
-        ["⚡ Действия", "🔔 Алерты", "⚙️ Настройки"],
+        ["🔔 Алерты", "⚙️ Настройки"],
     ],
     resize_keyboard=True,
 )
 
 
-# ── OPS ───────────────────────────────────────────────────────────────────────
+# ── OPS ────────────────────────────────────────────────────────────────────────
 
 def ops_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📡 Статус нод",      callback_data="ops_status"),
-         InlineKeyboardButton("🔄 Обновить",        callback_data="ops_refresh")],
-        [InlineKeyboardButton("🖥 Серверы",         callback_data="ops_server"),
-         InlineKeyboardButton("🔍 Порт-проб",       callback_data="ops_probe")],
-        [InlineKeyboardButton("🧭 Гео-сравнение",   callback_data="ops_geo")],
-        [InlineKeyboardButton("🚨 Auto-Heal",        callback_data="ops_heal"),
-         InlineKeyboardButton("💀 Panic Restart",   callback_data="ops_panic")],
-        [InlineKeyboardButton("💻 SSH-команда",     callback_data="ops_ssh_menu"),
-         InlineKeyboardButton("♻️ Ребут сервера",   callback_data="ops_reboot_menu")],
+        [
+            InlineKeyboardButton("🔄 Обновить",     callback_data="ops_refresh"),
+            InlineKeyboardButton("🔍 Порт-проб",    callback_data="ops_probe"),
+            InlineKeyboardButton("🧭 Гео",          callback_data="ops_geo"),
+        ],
+        [
+            InlineKeyboardButton("🖥 Серверы",      callback_data="ops_server"),
+            InlineKeyboardButton("💻 SSH",           callback_data="ops_ssh_menu"),
+            InlineKeyboardButton("♻️ Ребут",         callback_data="ops_reboot_menu"),
+        ],
+        [
+            InlineKeyboardButton("🚨 Auto-Heal",    callback_data="ops_heal"),
+            InlineKeyboardButton("💀 Panic",         callback_data="ops_panic"),
+        ],
     ])
 
 
@@ -32,18 +38,28 @@ def ops_keyboard():
 
 def users_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📋 Список",          callback_data="users_list")],
-        [InlineKeyboardButton("➕ Создать",          callback_data="users_create"),
-         InlineKeyboardButton("🗑 Удалить",         callback_data="users_delete")],
-        [InlineKeyboardButton("🚫 Отключить",       callback_data="users_disable"),
-         InlineKeyboardButton("✅ Включить",        callback_data="users_enable")],
-        [InlineKeyboardButton("ℹ️ Инфо",            callback_data="users_info"),
-         InlineKeyboardButton("🔄 Сброс трафика",   callback_data="users_reset_traffic")],
-        [InlineKeyboardButton("📦 Установить лимит", callback_data="users_set_limit"),
-         InlineKeyboardButton("📅 Продлить срок",   callback_data="users_extend_expiry")],
-        [InlineKeyboardButton("📱 Устройства",      callback_data="users_set_devices"),
-         InlineKeyboardButton("📷 QR-код",          callback_data="users_qr")],
-        [InlineKeyboardButton("🔗 Подписка",        callback_data="users_sub")],
+        [InlineKeyboardButton("📋 Список",           callback_data="users_list")],
+        [
+            InlineKeyboardButton("➕ Создать",        callback_data="users_create"),
+            InlineKeyboardButton("🗑 Удалить",        callback_data="users_delete"),
+        ],
+        [
+            InlineKeyboardButton("✅ Включить",       callback_data="users_enable"),
+            InlineKeyboardButton("🚫 Отключить",      callback_data="users_disable"),
+            InlineKeyboardButton("ℹ️ Инфо",           callback_data="users_info"),
+        ],
+        [
+            InlineKeyboardButton("🔄 Сброс трафика",  callback_data="users_reset_traffic"),
+            InlineKeyboardButton("📦 Лимит",          callback_data="users_set_limit"),
+        ],
+        [
+            InlineKeyboardButton("📅 Продлить",       callback_data="users_extend_expiry"),
+            InlineKeyboardButton("📱 Девайсы",        callback_data="users_set_devices"),
+        ],
+        [
+            InlineKeyboardButton("🔗 Подписка",       callback_data="users_sub"),
+            InlineKeyboardButton("📷 QR-код",         callback_data="users_qr"),
+        ],
     ])
 
 
@@ -51,50 +67,93 @@ def users_keyboard():
 
 def analytics_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📈 Общий обзор",      callback_data="analytics_traffic")],
-        [InlineKeyboardButton("🇫🇮 Финляндия",       callback_data="analytics_fi"),
-         InlineKeyboardButton("🇩🇪 Германия",        callback_data="analytics_de")],
-        [InlineKeyboardButton("👥 Онлайн клиенты",   callback_data="analytics_online"),
-         InlineKeyboardButton("🏆 Топ юзеров",       callback_data="analytics_top")],
-        [InlineKeyboardButton("📊 График трафика",   callback_data="analytics_chart_traffic"),
-         InlineKeyboardButton("📉 График латентности", callback_data="analytics_chart_latency")],
+        [
+            InlineKeyboardButton("📈 Обзор",          callback_data="analytics_traffic"),
+            InlineKeyboardButton("👥 Онлайн",         callback_data="analytics_online"),
+            InlineKeyboardButton("🏆 Топ",            callback_data="analytics_top"),
+        ],
+        [
+            InlineKeyboardButton("🇫🇮 FI",            callback_data="analytics_fi"),
+            InlineKeyboardButton("🇩🇪 GE",            callback_data="analytics_de"),
+        ],
+        [
+            InlineKeyboardButton("📊 График трафика",    callback_data="analytics_chart_traffic"),
+            InlineKeyboardButton("📉 График латентн.",   callback_data="analytics_chart_latency"),
+        ],
     ])
 
 
-# ── Actions ────────────────────────────────────────────────────────────────────
+# ── Settings (Настройки + бывшие Действия) ────────────────────────────────────
 
-def actions_keyboard():
+def settings_keyboard(daily_on: bool = True):
+    label = "📅 Daily: ✅" if daily_on else "📅 Daily: ❌"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🇫🇮 Restart FI",       callback_data="action_restart_fi"),
-         InlineKeyboardButton("🇩🇪 Restart GE",       callback_data="action_restart_ge")],
-        [InlineKeyboardButton("⚡ Только Hysteria",   callback_data="action_restart_hys"),
-         InlineKeyboardButton("🌐 Только VLESS",      callback_data="action_restart_vless")],
-        [InlineKeyboardButton("🔄 Перезапустить всё", callback_data="action_restart_all")],
-        [InlineKeyboardButton("🔁 Синх. ноды",       callback_data="action_sync"),
-         InlineKeyboardButton("💾 Бэкап конфигов",   callback_data="action_backup")],
-        [InlineKeyboardButton("🔧 Переустановить",    callback_data="action_reinstall_menu")],
+        [InlineKeyboardButton("🔍 Найти ноды в панели", callback_data="settings_discover")],
+        [
+            InlineKeyboardButton("🔄 Рестарт всех",     callback_data="action_restart_all"),
+            InlineKeyboardButton("💀 Panic restart",     callback_data="ops_panic"),
+        ],
+        [
+            InlineKeyboardButton("⚡ Только Hysteria",   callback_data="action_restart_hys"),
+            InlineKeyboardButton("🌐 Только VLESS",      callback_data="action_restart_vless"),
+        ],
+        [
+            InlineKeyboardButton("🔁 Синхронизация",     callback_data="action_sync"),
+            InlineKeyboardButton("💾 Бэкап",             callback_data="action_backup"),
+        ],
+        [
+            InlineKeyboardButton("🔧 Переустановить",    callback_data="action_reinstall_menu"),
+            InlineKeyboardButton(label,                   callback_data="alerts_toggle_daily"),
+        ],
     ])
+
+
+def settings_node_restart_keyboard(nodes: list[dict]) -> InlineKeyboardMarkup:
+    """Динамические кнопки рестарта нод из API."""
+    rows = []
+    row  = []
+    for node in nodes:
+        name    = node.get("name", "?")
+        flag    = node.get("flag", "📡")
+        node_id = node["_id"]
+        btn     = InlineKeyboardButton(
+            f"{flag} {name}",
+            callback_data=f"action_restart_node_{node_id}",
+        )
+        row.append(btn)
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton("❌ Отмена", callback_data="cancel")])
+    return InlineKeyboardMarkup(rows)
 
 
 # ── Alerts ─────────────────────────────────────────────────────────────────────
 
 def alerts_keyboard_with_state(daily_on: bool):
-    label = "📅 Daily Report ✅" if daily_on else "📅 Daily Report ❌"
+    label = "📅 Daily ✅" if daily_on else "📅 Daily ❌"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 Лог алертов",     callback_data="alerts_status"),
-         InlineKeyboardButton("📅 Отчёт сейчас",   callback_data="alerts_report_now")],
-        [InlineKeyboardButton("🔇 Тихо 1ч",         callback_data="alerts_mute_1"),
-         InlineKeyboardButton("🔇 Тихо 3ч",         callback_data="alerts_mute_3"),
-         InlineKeyboardButton("🔇 Тихо 6ч",         callback_data="alerts_mute_6")],
-        [InlineKeyboardButton("🔔 Включить",         callback_data="alerts_unmute")],
-        [InlineKeyboardButton(label,                 callback_data="alerts_toggle_daily")],
+        [
+            InlineKeyboardButton("📊 Лог алертов",   callback_data="alerts_status"),
+            InlineKeyboardButton("📅 Отчёт сейчас",  callback_data="alerts_report_now"),
+        ],
+        [
+            InlineKeyboardButton("🔇 1ч",  callback_data="alerts_mute_1"),
+            InlineKeyboardButton("🔇 3ч",  callback_data="alerts_mute_3"),
+            InlineKeyboardButton("🔇 6ч",  callback_data="alerts_mute_6"),
+        ],
+        [
+            InlineKeyboardButton("🔔 Включить",  callback_data="alerts_unmute"),
+            InlineKeyboardButton(label,           callback_data="alerts_toggle_daily"),
+        ],
     ])
 
 
 # ── Node pickers ───────────────────────────────────────────────────────────────
 
 def node_picker_keyboard(action_prefix: str, nodes: list[tuple]) -> InlineKeyboardMarkup:
-    """nodes: [(node_id, name, type), …]"""
     buttons = []
     for node_id, name, ntype in nodes:
         tag = "⚡ HYS" if ntype == "hysteria" else "🌐 VLS"
@@ -121,13 +180,13 @@ def reinstall_keyboard(nodes: list[tuple]) -> InlineKeyboardMarkup:
 # ── Generic ────────────────────────────────────────────────────────────────────
 
 def confirm_keyboard(action: str, target: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Подтвердить", callback_data=f"confirm_{action}_{target}"),
-         InlineKeyboardButton("❌ Отмена",       callback_data="cancel")],
-    ])
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Подтвердить", callback_data=f"confirm_{action}_{target}"),
+        InlineKeyboardButton("❌ Отмена",       callback_data="cancel"),
+    ]])
 
 
 def back_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("◀️ Назад", callback_data="back_main")],
-    ])
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("◀️ Назад", callback_data="back_main"),
+    ]])
