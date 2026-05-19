@@ -293,3 +293,8 @@ async def mcp_async(tool: str, arguments: dict | None = None) -> dict:
         return {"error": err} if err else {"_output": out}
 
     return mcp(tool, arguments)
+
+
+def api_post(path: str, body: dict | None = None) -> dict:
+    """Public alias for _post — used by alerts.py and other modules."""
+    return _post(path, body)
