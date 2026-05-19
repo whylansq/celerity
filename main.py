@@ -17,9 +17,8 @@ logging.getLogger("telegram").setLevel(logging.ERROR)
 
 from keyboard import (
     MAIN_KEYBOARD, ops_keyboard, users_keyboard, analytics_keyboard,
-    settings_keyboard, settings_node_restart_keyboard,
-    alerts_keyboard_with_state, reinstall_keyboard, node_picker_keyboard,
-    confirm_keyboard, back_keyboard,
+    settings_keyboard, alerts_keyboard_with_state,
+    node_picker_keyboard, confirm_keyboard, back_keyboard,
 )
 from nodes import format_status, restart_by_name, restart_all_nodes, panic_restart, get_nodes_inline_list, get_nodes
 from mcp import api_get_nodes, api_sync
@@ -35,8 +34,8 @@ from traffic import (
 from alerts import monitor, mute_alerts, unmute_alerts, get_alert_status
 from prober import get_probe_summary, get_geo_comparison
 from charts import latency_chart, traffic_chart
-from backup import backup_all, reinstall_node, cleanup_backup
-from server import format_server_stats, ssh_command, reboot_server
+from backup import backup_all
+from server import format_server_stats
 from scheduler import build_daily_report, check_expiry_warnings, check_traffic_limit_warnings
 import scheduler as _sched
 from configs import cleanup_qr
@@ -47,7 +46,7 @@ ADMIN_ID  = int(os.getenv("ADMIN_ID"))
 
 (WAIT_CREATE, WAIT_DELETE, WAIT_DISABLE, WAIT_ENABLE, WAIT_INFO,
  WAIT_RESET_TRAFFIC, WAIT_SET_LIMIT, WAIT_EXTEND_EXPIRY, WAIT_SET_DEVICES,
- WAIT_SUB, WAIT_QR, WAIT_SSH_NODE, WAIT_SSH_CMD) = range(13)
+ WAIT_SUB, WAIT_QR) = range(11)
 
 _SECTION_BUTTONS = {
     "➕ Добавить юзера", "📅 Отчёт",
@@ -80,15 +79,16 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📖  *СПРАВКА ПО БОТУ*\n\n"
         "*Разделы:*\n"
-        "  🧠 OPS — ноды, серверы, SSH, ребут\n"
+        "  🧠 OPS — статус нод, порт-проб, гео\n"
         "  👥 Юзеры — полное управление\n"
         "  📊 Аналитика — трафик, топы, графики\n"
         "  🔔 Алерты — лог, отчёт, mute\n"
         "  ⚙️ Настройки — рестарты, синх, бэкап\n\n"
         "*Мониторинг (фон):*\n"
         "  • Порт-проб каждые 5 сек (фильтр 2/3)\n"
-        "  • Авто-рестарт при падении ноды\n"
-        "  • Ежедневный отчёт каждые 24ч",
+        "  • Алерт при спайке трафика (>3 GB/60s)\n"
+        "  • Ежедневный отчёт каждые 24ч\n\n"
+        "ℹ️ SSH, ребут и переустановка — через веб-панель.",
         parse_mode="Markdown", reply_markup=MAIN_KEYBOARD,
     )
 
@@ -162,7 +162,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("↩️ Отменено")
         return
 
-    # ══ OPS ═══════════════════════════════════════════════════════════════════
+    # ══ OPS ════════════════════════════════════════════════════════════════════
     if data in ("ops_status", "ops_refresh"):
         await query.edit_message_text(format_status(), reply_markup=ops_keyboard())
     elif data == "ops_probe":
@@ -170,14 +170,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "ops_geo":
         await query.edit_message_text(get_geo_comparison(), reply_markup=ops_keyboard())
     elif data == "ops_server":
-        await query.edit_message_text("🖥  Запрашиваю статистику серверов…")
         await query.edit_message_text(format_server_stats(), reply_markup=ops_keyboard())
-    elif data == "ops_heal":
-        await query.edit_message_text(
-            "🚨  *Auto-Heal*\n\nПорт-монитор работает в фоне.\n"
-            "При падении ноды авто-рестарт запускается автоматически.\n\n" + format_status(),
-            parse_mode="Markdown", reply_markup=ops_keyboard(),
-        )
     elif data == "ops_panic":
         await query.edit_message_text(
             "⚠️  *PANIC RESTART*\n\nStop → 2s → Start ALL сервисов.\n\nПодтверди:",
@@ -186,36 +179,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "confirm_panic_all":
         await query.edit_message_text("💀  Выполняю panic restart…")
         await query.edit_message_text(panic_restart())
-    elif data == "ops_ssh_menu":
-        nodes = get_nodes_inline_list()
-        context.user_data["conv_state"] = WAIT_SSH_NODE
-        await query.edit_message_text("💻  *SSH-команда*\n\nВыбери ноду:",
-                                      parse_mode="Markdown",
-                                      reply_markup=node_picker_keyboard("ssh_node", nodes))
-    elif data.startswith("ssh_node_"):
-        parts   = data[len("ssh_node_"):].rsplit("_", 1)
-        node_id = parts[0]
-        context.user_data["ssh_target_node"] = node_id
-        context.user_data["conv_state"] = WAIT_SSH_CMD
-        await query.edit_message_text("💻  Введи bash-команду:")
-    elif data == "ops_reboot_menu":
-        await query.edit_message_text("♻️  *Ребут сервера*\n\nВыбери ноду:",
-                                      parse_mode="Markdown",
-                                      reply_markup=node_picker_keyboard("reboot_node", get_nodes_inline_list()))
-    elif data.startswith("reboot_node_"):
-        parts     = data[len("reboot_node_"):].rsplit("_", 1)
-        node_id   = parts[0]
-        names     = {nid: n for nid, n, _ in get_nodes_inline_list()}
-        node_name = names.get(node_id, node_id)
-        await query.edit_message_text(
-            f"♻️  Перезагрузить сервер с *{node_name}*?",
-            parse_mode="Markdown", reply_markup=confirm_keyboard("reboot_srv", node_id),
-        )
-    elif data.startswith("confirm_reboot_srv_"):
-        node_id = data[len("confirm_reboot_srv_"):]
-        await query.edit_message_text("♻️  Отправляю команду ребута…")
-        _, msg = reboot_server(node_id)
-        await query.edit_message_text(msg)
 
     # ══ USERS ══════════════════════════════════════════════════════════════════
     elif data == "users_list":
@@ -301,7 +264,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for n in nodes:
             em = "🟢" if n.get("status") == "online" else "🔴"
             lines.append(f"{em} {n.get('flag','📡')} {n.get('name','?')} ({n.get('type','?')})")
-        lines.append("\nВсе ноды загружены из панели.")
         await query.edit_message_text("\n".join(lines),
                                       reply_markup=settings_keyboard(_sched.daily_report_enabled))
     elif data == "action_restart_all":
@@ -312,21 +274,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(restart_all_nodes(),
                                       reply_markup=settings_keyboard(_sched.daily_report_enabled))
     elif data == "action_restart_hys":
-        await query.edit_message_text("⚡  Перезапускаю Hysteria на всех нодах…")
         await query.edit_message_text("⚡  Hysteria Restart\n\n" + restart_by_name("", service="hysteria"),
                                       reply_markup=settings_keyboard(_sched.daily_report_enabled))
     elif data == "action_restart_vless":
-        await query.edit_message_text("🌐  Перезапускаю VLESS на всех нодах…")
         await query.edit_message_text("🌐  VLESS Restart\n\n" + restart_by_name("", service="vless"),
-                                      reply_markup=settings_keyboard(_sched.daily_report_enabled))
-    elif data.startswith("action_restart_node_"):
-        node_id = data[len("action_restart_node_"):]
-        nodes   = api_get_nodes()
-        node    = next((n for n in nodes if n["_id"] == node_id), None)
-        name    = node.get("name", node_id) if node else node_id
-        await query.edit_message_text(f"🔄  Перезапускаю {name}…")
-        result  = restart_by_name(name)
-        await query.edit_message_text(f"🔄 {name}\n\n{result}",
                                       reply_markup=settings_keyboard(_sched.daily_report_enabled))
     elif data == "action_sync":
         await query.edit_message_text("🔁  Синхронизирую ноды…")
@@ -334,38 +285,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = "✅  Синхронизация запущена" if "error" not in r else f"❌  Ошибка: {r['error']}"
         await query.edit_message_text(msg, reply_markup=settings_keyboard(_sched.daily_report_enabled))
     elif data == "action_backup":
-        await query.edit_message_text("💾  Снимаю бэкап конфигов…")
-        files, summary = backup_all()
-        await query.edit_message_text(f"💾  BACKUP\n\n{summary}")
-        for f in files:
-            try:
-                with open(f, "rb") as fh:
-                    await query.message.reply_document(document=fh, filename=f)
-            except Exception:
-                pass
-            cleanup_backup(f)
-    elif data == "action_reinstall_menu":
-        await query.edit_message_text("🔧  *Переустановить ноду*\n\nВыбери:",
-                                      parse_mode="Markdown",
-                                      reply_markup=reinstall_keyboard(get_nodes_inline_list()))
-    elif data.startswith("reinstall_"):
-        parts = data[len("reinstall_"):].rsplit("_", 1)
-        if len(parts) == 2:
-            node_id, ntype = parts
-            await query.edit_message_text(
-                f"⚠️  Переустановить *{ntype.upper()}* на этой ноде?",
-                parse_mode="Markdown",
-                reply_markup=confirm_keyboard(f"reinstall_{ntype}", node_id),
-            )
-    elif data.startswith("confirm_reinstall_"):
-        rest = data[len("confirm_reinstall_"):]
-        for ntype in ("hysteria", "xray"):
-            if rest.startswith(ntype + "_"):
-                node_id = rest[len(ntype) + 1:]
-                await query.edit_message_text(f"🔧  Переустанавливаю {ntype}…")
-                ok, msg = reinstall_node(node_id, ntype)
-                await query.edit_message_text(msg, parse_mode="Markdown")
-                break
+        await query.edit_message_text("💾  Проверяю ноды…")
+        _, summary = backup_all()
+        await query.edit_message_text(summary, reply_markup=settings_keyboard(_sched.daily_report_enabled))
 
     # ══ ALERTS ═════════════════════════════════════════════════════════════════
     elif data == "alerts_status":
@@ -412,22 +334,6 @@ async def _input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     context.user_data["conv_state"] = None
-
-    if state == WAIT_SSH_NODE:
-        await update.message.reply_text("👆  Выбери ноду кнопкой выше", reply_markup=MAIN_KEYBOARD)
-        return
-
-    if state == WAIT_SSH_CMD:
-        node_id = context.user_data.get("ssh_target_node")
-        if not node_id:
-            await update.message.reply_text("❌  Нода не выбрана")
-            return
-        await update.message.reply_text(f"💻  Выполняю: `{text}`", parse_mode="Markdown")
-        out = ssh_command(node_id, text)
-        if len(out) > 3800:
-            out = out[:3800] + "\n… (обрезано)"
-        await update.message.reply_text(f"```\n{out}\n```", parse_mode="Markdown")
-        return
 
     if state == WAIT_CREATE:
         parts    = text.split()
