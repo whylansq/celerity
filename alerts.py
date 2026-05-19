@@ -1,20 +1,21 @@
 """
 Real-time alert system:
   - 5-sec port-probe heartbeat with 2/3 false-positive filter
-  - 60-sec API check (traffic spikes, overload, API health)
-  - Integrates scheduler for resource/expiry/daily alerts
+  - 60-sec API check (traffic spikes, node offline)
+  - Integrates scheduler for expiry/daily alerts
+
+Убрано: SSH auto-restart (API не поддерживает)
+Добавлено: reset-status через API при падении ноды
 """
 
 import asyncio
-import json
 import time
 
 from prober import probe_all, check_2_of_3, alerted_down
-from nodes import get_nodes, restart_node
-from mcp import mcp_async, api_get_nodes_async
+from nodes import get_nodes
+from mcp import api_get_nodes_async, api_post
 from events import log_event
 
-# ── State ──────────────────────────────────────────────────────────────────────
 alert_log: list[str] = []
 muted_until: float = 0.0
 
@@ -24,8 +25,6 @@ TRAFFIC_SPIKE_GB   = 3
 
 last_traffic: dict[str, int] = {}
 
-
-# ── Mute controls ──────────────────────────────────────────────────────────────
 
 def is_muted() -> bool:
     return time.time() < muted_until
@@ -47,7 +46,7 @@ def get_alert_status() -> str:
         mins   = int((muted_until - time.time()) / 60)
         status = f"🔇 Алерты выключены — осталось {mins} мин\n"
     else:
-        status = f"🔔 Алерты АКТИВНЫ\n"
+        status = "🔔 Алерты АКТИВНЫ\n"
 
     status += f"🕐 Обновлено: {ts}\n"
 
@@ -60,19 +59,16 @@ def get_alert_status() -> str:
     return status
 
 
-# ── Internal helpers ───────────────────────────────────────────────────────────
-
 def _log(msg: str):
-    ts = time.strftime("%H:%M:%S")
+    ts    = time.strftime("%H:%M:%S")
     entry = f"[{ts}] {msg}"
     alert_log.append(entry)
     if len(alert_log) > 200:
         alert_log.pop(0)
 
 
-async def _send(app, admin_id: int, text: str, force: bool = False):
-    """Send Telegram alert. force=True bypasses mute (e.g. daily report)."""
-    if not force and is_muted():
+async def _send(app, admin_id: int, text: str):
+    if is_muted():
         return
     _log(text.split("\n")[0])
     try:
@@ -104,11 +100,11 @@ async def _probe_loop(app, admin_id: int):
                         app, admin_id,
                         f"🔴 NODE DOWN: {name}\n"
                         f"   Port {r.get('port', 443)} — {lat_str}\n"
-                        f"   ⚙️ Auto-restart triggered",
+                        f"   Панель уведомлена, проверь статус в /ops",
                     )
                     log_event("node_down", name, lat_str)
-                    restart_node(node_id)
-                    log_event("node_restart", name, "auto")
+                    # Сброс статуса через API панели
+                    api_post(f"/api/nodes/{node_id}/reset-status")
 
                 elif ok and node_id in alerted_down:
                     alerted_down.discard(node_id)
@@ -142,27 +138,27 @@ async def _api_loop(app, admin_id: int):
                 continue
 
             for node in node_list:
-                name   = node.get("name", "?")
-                t      = node.get("traffic", {})
-                rx_now = t.get("rx", 0)
-                rx_prev = last_traffic.get(name, rx_now)
+                name     = node.get("name", "?")
+                t        = node.get("traffic", {})
+                rx_now   = t.get("rx", 0)
+                rx_prev  = last_traffic.get(name, rx_now)
                 delta_gb = (rx_now - rx_prev) / 1024 ** 3
 
                 if delta_gb > TRAFFIC_SPIKE_GB:
                     await _send(
                         app, admin_id,
                         f"🚨 TRAFFIC SPIKE: {name}\n"
-                        f"   +{round(delta_gb, 2)} GB in {API_CHECK_INTERVAL}s",
+                        f"   +{round(delta_gb, 2)} GB за {API_CHECK_INTERVAL}s",
                     )
                     log_event("spike", name, f"+{round(delta_gb, 2)} GB")
 
                 last_traffic[name] = rx_now
 
-                online = node.get("online", 0)
+                online = node.get("onlineUsers", 0)
                 if online > 50:
                     await _send(
                         app, admin_id,
-                        f"⚡ OVERLOAD: {name}\n   {online} clients connected",
+                        f"⚡ ПЕРЕГРУЗКА: {name}\n   {online} клиентов подключено",
                     )
 
         except Exception as e:
