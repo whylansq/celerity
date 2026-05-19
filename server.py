@@ -1,34 +1,14 @@
 """
-SSH-based physical server monitoring.
-Groups nodes by IP so each real server is queried only once.
+Server monitoring через API панели.
+SSH-мониторинг убран — панель его не поддерживает через API.
+Используем данные нод из /api/nodes.
 """
 
-from mcp import api_ssh, api_get_nodes
-from events import log_event
-
-# ── Stats command ───────────────────────────────────────────────────────────────
-
-_STATS_CMD = r"""
-cpu=$(top -bn1 2>/dev/null | grep 'Cpu(s)' | \
-  awk '{for(i=1;i<=NF;i++) if($(i+1)~/id/) {gsub(/[^0-9.]/,"",$i); printf "%.1f", 100-$i; exit}}'); \
-mem=$(free -m 2>/dev/null | awk '/^Mem:/{printf "%.1f/%.1fGB %.0f%%", $3/1024, $2/1024, $3/$2*100}'); \
-disk=$(df -h / 2>/dev/null | awk 'NR==2{printf "%s/%s %s", $3, $2, $5}'); \
-load=$(uptime 2>/dev/null | awk -F'load average: ' '{print $2}'); \
-up=$(uptime -p 2>/dev/null | sed 's/up //' || uptime | awk -F'up ' '{print $2}' | awk -F',' '{print $1}'); \
-echo "CPU:${cpu:-?}%|MEM:${mem:-?}|DISK:${disk:-?}|LOAD:${load:-?}|UP:${up:-?}"
-"""
-
-
-def _parse_stats(raw: str) -> dict:
-    result = {}
-    for part in raw.split("|"):
-        if ":" in part:
-            k, _, v = part.partition(":")
-            result[k.strip()] = v.strip()
-    return result
+from mcp import api_get_nodes
 
 
 def get_unique_server_nodes() -> list[dict]:
+    """Возвращает уникальные серверы (по IP)."""
     nodes = api_get_nodes()
     seen: dict[str, dict] = {}
     for n in nodes:
@@ -38,91 +18,52 @@ def get_unique_server_nodes() -> list[dict]:
     return list(seen.values())
 
 
-def get_server_stats_raw(node_id: str) -> tuple[dict | None, str | None]:
-    out, err = api_ssh(node_id, _STATS_CMD)
-    if err or not out:
-        return None, err
-    return _parse_stats(out), None
-
-
 def format_server_stats() -> str:
-    servers = get_unique_server_nodes()
-    if not servers:
-        return "❌ No nodes found"
+    """Статус серверов из API панели (без SSH)."""
+    nodes = api_get_nodes()
+    if not nodes:
+        return "❌ Ноды не найдены"
 
-    text     = "🖥 SERVER RESOURCES\n\n"
-    all_nodes = api_get_nodes()
+    # Группируем по IP
+    servers: dict[str, list[dict]] = {}
+    for n in nodes:
+        ip = n.get("ip", "?")
+        servers.setdefault(ip, []).append(n)
 
-    for node in servers:
-        node_id = node["_id"]
-        ip      = node.get("ip", "?")
-        names   = [n.get("name", "") for n in all_nodes if n.get("ip") == ip]
-        flag    = "🇫🇮" if any("fi" in nm.lower() for nm in names) else "🇩🇪"
+    text = "🖥 SERVER STATUS\n\n"
+    for ip, node_list in servers.items():\
+        # Определяем флаг по имени нод
+        names = [n.get("name", "") for n in node_list]
+        flag  = "🇫🇮" if any("fi" in nm.lower() for nm in names) else "🇩🇪"
+        text += f"{flag} {ip}\n"
 
-        stats, err = get_server_stats_raw(node_id)
-        if err or not stats:
-            log_event("ssh_error", ip, f"server stats: {err}")
-            text += f"{flag} {ip}\n   ❌ SSH error: {err}\n\n"
-            continue
+        for node in node_list:
+            em     = "🟢" if node.get("status") == "online" else "🔴"
+            name   = node.get("name", "?")
+            ntype  = "HYS" if node.get("type") == "hysteria" else "VLS"
+            online = node.get("onlineUsers", 0)
+            t      = node.get("traffic", {})
+            rx     = round(t.get("rx", 0) / 1024 ** 3, 2)
+            tx     = round(t.get("tx", 0) / 1024 ** 3, 2)
+            text  += f"   {em} {name} [{ntype}] 👥{online} ⬇{rx}GB ⬆{tx}GB\n"
 
-        cpu_str  = stats.get("CPU", "?")
-        mem_str  = stats.get("MEM", "?")
-        disk_str = stats.get("DISK", "?")
-        load_str = stats.get("LOAD", "?")
-        up_str   = stats.get("UP", "?")
+        text += "\n"
 
-        try:
-            cpu_val = float(cpu_str.replace("%", ""))
-            cpu_em  = "🔴" if cpu_val > 85 else ("🟡" if cpu_val > 60 else "🟢")
-        except Exception:
-            cpu_em = "⚪"
-
-        text += (
-            f"{flag} {ip}\n"
-            f"   {cpu_em} CPU: {cpu_str}%\n"
-            f"   💾 RAM: {mem_str}\n"
-            f"   💿 Disk: {disk_str}\n"
-            f"   📊 Load: {load_str}\n"
-            f"   ⏱ Up: {up_str}\n\n"
-        )
-
+    text += "ℹ️ CPU/RAM/Disk доступны только через веб-панель (SSH Terminal)"
     return text.strip()
 
 
 def ssh_command(node_id: str, cmd: str) -> str:
-    out, err = api_ssh(node_id, cmd)
-    if err:
-        log_event("ssh_error", node_id, cmd[:80])
-        return f"❌ SSH error: {err}"
-    return out or "(no output)"
+    return "❌ SSH через API недоступен. Используй SSH Terminal в веб-панели."
 
 
 def reboot_server(node_id: str) -> tuple[bool, str]:
-    _, err = api_ssh(node_id, "shutdown -r +0 2>/dev/null || reboot")
-    if err:
-        return False, f"❌ Reboot failed: {err}"
-    return True, "♻️ Reboot command sent"
+    return False, "❌ Ребут через API недоступен. Используй SSH Terminal в веб-панели."
 
 
 def get_disk_usage_pct(node_id: str) -> float | None:
-    out, err = api_ssh(node_id, "df / | tail -1 | awk '{print $5}' | tr -d '%'")
-    if err or not out:
-        return None
-    try:
-        return float(out.strip())
-    except Exception:
-        return None
+    return None
 
 
 def get_cpu_pct(node_id: str) -> float | None:
-    out, err = api_ssh(
-        node_id,
-        r"top -bn1 | grep 'Cpu(s)' | awk '{for(i=1;i<=NF;i++) if($(i+1)~/id/) "
-        r"{gsub(/[^0-9.]/,\"\",$i); printf \"%.1f\", 100-$i; exit}}'",
-    )
-    if err or not out:
-        return None
-    try:
-        return float(out.strip())
-    except Exception:
-        return None
+    return None
