@@ -69,23 +69,32 @@ def analytics_keyboard():
     ])
 
 
-def settings_keyboard(daily_on: bool = True):
-    label = "📅 Daily: ✅" if daily_on else "📅 Daily: ❌"
+def settings_keyboard(daily_on: bool = True, reboot_on: bool = False):
+    daily_label  = "📅 Daily: ✅" if daily_on  else "📅 Daily: ❌"
+    reboot_label = "♻️ Авторестарт: ✅" if reboot_on else "♻️ Авторестарт: ❌"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔍 Найти ноды в панели", callback_data="settings_discover")],
+        [InlineKeyboardButton("🔍 Найти ноды в панели",  callback_data="settings_discover")],
         [
-            InlineKeyboardButton("🔄 Рестарт всех",     callback_data="action_restart_all"),
-            InlineKeyboardButton("💀 Panic restart",     callback_data="ops_panic"),
+            InlineKeyboardButton("🔄 Рестарт всех нод",  callback_data="action_restart_all"),
+            InlineKeyboardButton("💀 Panic restart",      callback_data="ops_panic"),
         ],
         [
-            InlineKeyboardButton("⚡ Только Hysteria",   callback_data="action_restart_hys"),
-            InlineKeyboardButton("🌐 Только VLESS",      callback_data="action_restart_vless"),
+            InlineKeyboardButton("⚡ Только Hysteria",    callback_data="action_restart_hys"),
+            InlineKeyboardButton("🌐 Только VLESS",       callback_data="action_restart_vless"),
         ],
         [
-            InlineKeyboardButton("🔁 Синхронизация",     callback_data="action_sync"),
-            InlineKeyboardButton("💾 Бэкап",             callback_data="action_backup"),
+            InlineKeyboardButton("🖥 Перезагрузить GE",  callback_data="reboot_server_GE"),
+            InlineKeyboardButton("🖥 Перезагрузить FI",  callback_data="reboot_server_FI"),
         ],
-        [InlineKeyboardButton(label,                     callback_data="alerts_toggle_daily")],
+        [
+            InlineKeyboardButton("🔁 Синхронизация",      callback_data="action_sync"),
+            InlineKeyboardButton("💾 Бэкап",              callback_data="action_backup"),
+        ],
+        [
+            InlineKeyboardButton(daily_label,             callback_data="alerts_toggle_daily"),
+            InlineKeyboardButton(reboot_label,            callback_data="toggle_auto_reboot"),
+        ],
+        [InlineKeyboardButton("🕐 Время авторестарта",   callback_data="set_reboot_time")],
     ])
 
 
