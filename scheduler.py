@@ -6,9 +6,13 @@ from mcp import api_get_nodes, api_get_users
 from server import get_unique_server_nodes, get_disk_usage_pct, get_cpu_pct
 
 daily_report_enabled: bool = True
+auto_reboot_enabled:  bool = False
+auto_reboot_hour_utc: int  = 2   # 5:00 МСК = 2:00 UTC
+
 last_daily_report:    float = 0.0
 last_user_check:      float = 0.0
 last_resource_check:  float = 0.0
+last_reboot_date:     str   = ""
 
 DAILY_INTERVAL      = 86400
 USER_CHECK_INTERVAL = 21600
@@ -129,13 +133,59 @@ def check_server_resources() -> list[str]:
     return alerts
 
 
+async def _do_auto_reboot(app, admin_id: int):
+    from ssh_reboot import reboot_all, check_online
+    global last_reboot_date
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if last_reboot_date == today:
+        return
+    last_reboot_date = today
+
+    await app.bot.send_message(
+        admin_id,
+        "🔄  *Авто-перезагрузка серверов*\n\n"
+        "Начинаю перезагрузку GE и FI...",
+        parse_mode="Markdown",
+    )
+
+    results = await asyncio.get_event_loop().run_in_executor(None, reboot_all)
+    await app.bot.send_message(admin_id, "\n".join(results))
+
+    await app.bot.send_message(admin_id, "⏳  Жду пока серверы поднимутся (~2 мин)...")
+    await asyncio.sleep(120)
+
+    status_lines = ["📊  *Статус после перезагрузки:*\n"]
+    for name in ["GE", "FI"]:
+        online = await asyncio.get_event_loop().run_in_executor(
+            None, check_online, name, 30
+        )
+        em = "🟢" if online else "🔴"
+        status_lines.append(f"{em} {name}: {'онлайн' if online else 'не отвечает'}")
+
+    await app.bot.send_message(
+        admin_id,
+        "\n".join(status_lines),
+        parse_mode="Markdown",
+    )
+
+
 async def scheduler_loop(app, admin_id: int):
     global last_daily_report, last_user_check, last_resource_check
 
     while True:
         await asyncio.sleep(60)
-        now = time.time()
+        now     = time.time()
+        now_utc = datetime.now(timezone.utc)
 
+        # ── Авто-перезагрузка ──────────────────────────────────────────────────
+        if auto_reboot_enabled and now_utc.hour == auto_reboot_hour_utc and now_utc.minute == 0:
+            try:
+                await _do_auto_reboot(app, admin_id)
+            except Exception as e:
+                print(f"[SCHEDULER] reboot error: {e}")
+
+        # ── Daily report ───────────────────────────────────────────────────────
         if daily_report_enabled and (now - last_daily_report) >= DAILY_INTERVAL:
             last_daily_report = now
             try:
@@ -143,6 +193,7 @@ async def scheduler_loop(app, admin_id: int):
             except Exception as e:
                 print(f"[SCHEDULER] daily report: {e}")
 
+        # ── User checks ────────────────────────────────────────────────────────
         if (now - last_user_check) >= USER_CHECK_INTERVAL:
             last_user_check = now
             try:
@@ -153,6 +204,7 @@ async def scheduler_loop(app, admin_id: int):
             except Exception as e:
                 print(f"[SCHEDULER] user check: {e}")
 
+        # ── Resource checks ────────────────────────────────────────────────────
         if (now - last_resource_check) >= RESOURCE_INTERVAL:
             last_resource_check = now
             try:
