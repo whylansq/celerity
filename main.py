@@ -46,7 +46,7 @@ ADMIN_ID  = int(os.getenv("ADMIN_ID"))
 
 (WAIT_CREATE, WAIT_DELETE, WAIT_DISABLE, WAIT_ENABLE, WAIT_INFO,
  WAIT_RESET_TRAFFIC, WAIT_SET_LIMIT, WAIT_EXTEND_EXPIRY, WAIT_SET_DEVICES,
- WAIT_SUB, WAIT_QR) = range(11)
+ WAIT_SUB, WAIT_QR, WAIT_REBOOT_TIME) = range(12)
 
 _SECTION_BUTTONS = {
     "➕ Добавить юзера", "📅 Отчёт",
@@ -83,12 +83,12 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  👥 Юзеры — полное управление\n"
         "  📊 Аналитика — трафик, топы, графики\n"
         "  🔔 Алерты — лог, отчёт, mute\n"
-        "  ⚙️ Настройки — рестарты, синх, бэкап\n\n"
+        "  ⚙️ Настройки — рестарты, авторестарт, синх\n\n"
         "*Мониторинг (фон):*\n"
-        "  • Порт-проб каждые 5 сек (фильтр 2/3)\n"
-        "  • Алерт при спайке трафика (>3 GB/60s)\n"
-        "  • Ежедневный отчёт каждые 24ч\n\n"
-        "ℹ️ SSH, ребут и переустановка — через веб-панель.",
+        "  • Порт-проб каждые 5 сек\n"
+        "  • Алерт при спайке трафика\n"
+        "  • Ежедневный отчёт каждые 24ч\n"
+        "  • Авто-перезагрузка серверов (если включена)",
         parse_mode="Markdown", reply_markup=MAIN_KEYBOARD,
     )
 
@@ -132,13 +132,16 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "⚙️ Настройки":
         nodes = api_get_nodes()
         ips   = sorted({n.get("ip", "") for n in nodes if n.get("ip")})
+        msk_h = (_sched.auto_reboot_hour_utc + 3) % 24
         await update.message.reply_text(
             "⚙️  *Настройки и действия*\n\n"
-            f"📡  Нод в панели:  {len(nodes)}\n"
-            f"🌐  Серверы:       {', '.join(ips) or '—'}\n"
-            f"📅  Daily report:  {'✅' if _sched.daily_report_enabled else '❌'}",
+            f"📡  Нод в панели:    {len(nodes)}\n"
+            f"🌐  Серверы:         {', '.join(ips) or '—'}\n"
+            f"📅  Daily report:    {'✅' if _sched.daily_report_enabled else '❌'}\n"
+            f"♻️  Авторестарт:     {'✅' if _sched.auto_reboot_enabled else '❌'}\n"
+            f"🕐  Время рестарта:  {msk_h:02d}:00 МСК",
             parse_mode="Markdown",
-            reply_markup=settings_keyboard(_sched.daily_report_enabled),
+            reply_markup=settings_keyboard(_sched.daily_report_enabled, _sched.auto_reboot_enabled),
         )
     else:
         await update.message.reply_text("Используй кнопки 👇", reply_markup=MAIN_KEYBOARD)
@@ -207,11 +210,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("🔄  *Сброс трафика*\n\nВведи имя:", parse_mode="Markdown")
     elif data == "users_set_limit":
         context.user_data["conv_state"] = WAIT_SET_LIMIT
-        await query.edit_message_text("📦  *Установить лимит*\n\nФормат: `имя GB`\nПример: `john 50`",
+        await query.edit_message_text("📦  *Установить лимит*\n\nФормат: `имя GB`",
                                       parse_mode="Markdown")
     elif data == "users_extend_expiry":
         context.user_data["conv_state"] = WAIT_EXTEND_EXPIRY
-        await query.edit_message_text("📅  *Продлить срок*\n\nФормат: `имя дней`\nПример: `john 30`",
+        await query.edit_message_text("📅  *Продлить срок*\n\nФормат: `имя дней`",
                                       parse_mode="Markdown")
     elif data == "users_set_devices":
         context.user_data["conv_state"] = WAIT_SET_DEVICES
@@ -249,7 +252,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if buf:
             await query.message.reply_photo(photo=buf, caption="📉 Latency Over Time")
         else:
-            await query.message.reply_text(err or "❌ Данных пока нет — жди проб")
+            await query.message.reply_text(err or "❌ Данных пока нет")
         await query.delete_message()
 
     # ══ SETTINGS ═══════════════════════════════════════════════════════════════
@@ -257,37 +260,78 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("🔍  Ищу ноды в панели…")
         nodes = api_get_nodes()
         if not nodes:
-            await query.edit_message_text("❌ Ноды не найдены — проверь PANEL_URL и API_KEY",
-                                          reply_markup=settings_keyboard(_sched.daily_report_enabled))
+            await query.edit_message_text("❌ Ноды не найдены",
+                                          reply_markup=settings_keyboard(_sched.daily_report_enabled, _sched.auto_reboot_enabled))
             return
         lines = [f"✅  Найдено нод: {len(nodes)}\n"]
         for n in nodes:
             em = "🟢" if n.get("status") == "online" else "🔴"
             lines.append(f"{em} {n.get('flag','📡')} {n.get('name','?')} ({n.get('type','?')})")
         await query.edit_message_text("\n".join(lines),
-                                      reply_markup=settings_keyboard(_sched.daily_report_enabled))
+                                      reply_markup=settings_keyboard(_sched.daily_report_enabled, _sched.auto_reboot_enabled))
+
+    elif data == "toggle_auto_reboot":
+        _sched.auto_reboot_enabled = not _sched.auto_reboot_enabled
+        msk_h = (_sched.auto_reboot_hour_utc + 3) % 24
+        state = f"✅ включён — каждый день в {msk_h:02d}:00 МСК" if _sched.auto_reboot_enabled else "❌ выключен"
+        await query.edit_message_text(
+            f"♻️  Авто-перезагрузка: {state}",
+            reply_markup=settings_keyboard(_sched.daily_report_enabled, _sched.auto_reboot_enabled),
+        )
+
+    elif data == "set_reboot_time":
+        context.user_data["conv_state"] = WAIT_REBOOT_TIME
+        msk_h = (_sched.auto_reboot_hour_utc + 3) % 24
+        await query.edit_message_text(
+            f"🕐  *Время авторестарта*\n\n"
+            f"Сейчас: {msk_h:02d}:00 МСК\n\n"
+            "Введи новое время в формате `ЧЧ` (по Москве)\n"
+            "Пример: `5` → 05:00 МСК",
+            parse_mode="Markdown",
+        )
+
+    elif data.startswith("reboot_server_"):
+        server = data[len("reboot_server_"):]
+        await query.edit_message_text(
+            f"🖥  Перезагрузить сервер *{server}*?\n\nДаунтайм ~2 минуты.",
+            parse_mode="Markdown",
+            reply_markup=confirm_keyboard("reboot_srv", server),
+        )
+
+    elif data.startswith("confirm_reboot_srv_"):
+        server = data[len("confirm_reboot_srv_"):]
+        await query.edit_message_text(f"♻️  Перезагружаю {server}…")
+        from ssh_reboot import ssh_reboot, check_online
+        ok, msg = await asyncio.get_event_loop().run_in_executor(None, ssh_reboot, server)
+        await query.edit_message_text(msg)
+        if ok:
+            await asyncio.sleep(120)
+            online = await asyncio.get_event_loop().run_in_executor(None, check_online, server, 30)
+            em = "🟢 онлайн" if online else "🔴 не отвечает"
+            await query.message.reply_text(f"📊 {server} после перезагрузки: {em}")
+
     elif data == "action_restart_all":
         await query.edit_message_text("🔄  Перезапустить ВСЕ ноды?",
                                       reply_markup=confirm_keyboard("restart", "all"))
     elif data == "confirm_restart_all":
         await query.edit_message_text("🔄  Перезапускаю все ноды…")
         await query.edit_message_text(restart_all_nodes(),
-                                      reply_markup=settings_keyboard(_sched.daily_report_enabled))
+                                      reply_markup=settings_keyboard(_sched.daily_report_enabled, _sched.auto_reboot_enabled))
     elif data == "action_restart_hys":
         await query.edit_message_text("⚡  Hysteria Restart\n\n" + restart_by_name("", service="hysteria"),
-                                      reply_markup=settings_keyboard(_sched.daily_report_enabled))
+                                      reply_markup=settings_keyboard(_sched.daily_report_enabled, _sched.auto_reboot_enabled))
     elif data == "action_restart_vless":
         await query.edit_message_text("🌐  VLESS Restart\n\n" + restart_by_name("", service="vless"),
-                                      reply_markup=settings_keyboard(_sched.daily_report_enabled))
+                                      reply_markup=settings_keyboard(_sched.daily_report_enabled, _sched.auto_reboot_enabled))
     elif data == "action_sync":
         await query.edit_message_text("🔁  Синхронизирую ноды…")
         r   = api_sync()
         msg = "✅  Синхронизация запущена" if "error" not in r else f"❌  Ошибка: {r['error']}"
-        await query.edit_message_text(msg, reply_markup=settings_keyboard(_sched.daily_report_enabled))
+        await query.edit_message_text(msg, reply_markup=settings_keyboard(_sched.daily_report_enabled, _sched.auto_reboot_enabled))
     elif data == "action_backup":
         await query.edit_message_text("💾  Проверяю ноды…")
         _, summary = backup_all()
-        await query.edit_message_text(summary, reply_markup=settings_keyboard(_sched.daily_report_enabled))
+        await query.edit_message_text(summary, reply_markup=settings_keyboard(_sched.daily_report_enabled, _sched.auto_reboot_enabled))
 
     # ══ ALERTS ═════════════════════════════════════════════════════════════════
     elif data == "alerts_status":
@@ -334,6 +378,20 @@ async def _input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     context.user_data["conv_state"] = None
+
+    if state == WAIT_REBOOT_TIME:
+        try:
+            h = int(text.strip())
+            if not 0 <= h <= 23:
+                raise ValueError
+            _sched.auto_reboot_hour_utc = (h - 3) % 24
+            await update.message.reply_text(
+                f"✅  Время авторестарта установлено: {h:02d}:00 МСК",
+                reply_markup=settings_keyboard(_sched.daily_report_enabled, _sched.auto_reboot_enabled),
+            )
+        except ValueError:
+            await update.message.reply_text("❌  Введи число от 0 до 23")
+        return
 
     if state == WAIT_CREATE:
         parts    = text.split()
