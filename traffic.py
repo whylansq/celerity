@@ -98,3 +98,38 @@ def top_users_by_traffic(limit: int = 10) -> str:
 
 def get_nodes_for_chart() -> list[dict]:
     return api_get_nodes()
+
+
+def active_users_traffic(minutes: int = 10) -> str:
+    from datetime import datetime, timezone, timedelta
+    users  = api_get_users()
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    active = []
+
+    for u in users:
+        last = u.get("traffic", {}).get("lastUpdate")
+        if not last:
+            continue
+        try:
+            ts = datetime.fromisoformat(last.replace("Z", "+00:00"))
+            if ts >= cutoff:
+                name = u.get("userId", u.get("username", "?"))
+                t    = u.get("traffic", {})
+                rx   = round(t.get("rx", 0) / 1024 ** 3, 2)
+                tx   = round(t.get("tx", 0) / 1024 ** 3, 2)
+                active.append((name, rx, tx, ts))
+        except Exception:
+            continue
+
+    if not active:
+        return f"👥 Активных пользователей за последние {minutes} мин: 0"
+
+    active.sort(key=lambda x: x[1] + x[2], reverse=True)
+    lines = [f"👥 АКТИВНЫЕ ПОЛЬЗОВАТЕЛИ (последние {minutes} мин)\n" + "─" * 30]
+    for name, rx, tx, ts in active:
+        last_str = ts.strftime("%H:%M UTC")
+        lines.append(f"🟢 {name}\n   ⬇ {rx} GB  ⬆ {tx} GB  🕐 {last_str}")
+
+    lines.append("─" * 30)
+    lines.append(f"Всего активных: {len(active)}")
+    return "\n".join(lines)
