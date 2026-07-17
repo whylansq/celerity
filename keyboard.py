@@ -59,6 +59,9 @@ def analytics_keyboard():
             InlineKeyboardButton("🏆 Топ",              callback_data="analytics_top"),
         ],
         [
+            InlineKeyboardButton("🟢 Активные (10м)",   callback_data="analytics_active"),
+        ],
+        [
             InlineKeyboardButton("🇫🇮 FI",              callback_data="analytics_fi"),
             InlineKeyboardButton("🇩🇪 GE",              callback_data="analytics_de"),
         ],
