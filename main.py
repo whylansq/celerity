@@ -29,7 +29,7 @@ from users import (
 )
 from traffic import (
     traffic_stats, node_stats_by_pattern, online_clients,
-    top_users_by_traffic, get_nodes_for_chart,
+    top_users_by_traffic, get_nodes_for_chart, active_users_traffic,
 )
 from alerts import monitor, mute_alerts, unmute_alerts, get_alert_status
 from prober import get_probe_summary, get_geo_comparison
@@ -236,6 +236,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(node_stats_by_pattern("ge"), reply_markup=analytics_keyboard())
     elif data == "analytics_online":
         await query.edit_message_text(online_clients(), reply_markup=analytics_keyboard())
+    elif data == "analytics_active":
+        await query.edit_message_text(active_users_traffic(), reply_markup=analytics_keyboard())
     elif data == "analytics_top":
         await query.edit_message_text(top_users_by_traffic(), reply_markup=analytics_keyboard())
     elif data == "analytics_chart_traffic":
