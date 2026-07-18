@@ -29,12 +29,17 @@ from users import (
 )
 from traffic import (
     traffic_stats, node_stats_by_pattern, online_clients,
-    top_users_by_traffic, get_nodes_for_chart, active_users_traffic,
+    top_users_by_traffic, get_nodes_for_chart,
 )
 from alerts import monitor, mute_alerts, unmute_alerts, get_alert_status
 from prober import get_probe_summary, get_geo_comparison
 from charts import latency_chart, traffic_chart
 from backup import backup_all
+from whitelist_monitor import (
+    check_whitelist_status, format_whitelist_status,
+    get_replacement_sni, update_node_sni, get_nodes_sni,
+    whitelist_monitor_loop,
+)
 from server import format_server_stats
 from scheduler import build_daily_report, check_expiry_warnings, check_traffic_limit_warnings
 import scheduler as _sched
@@ -236,8 +241,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(node_stats_by_pattern("ge"), reply_markup=analytics_keyboard())
     elif data == "analytics_online":
         await query.edit_message_text(online_clients(), reply_markup=analytics_keyboard())
-    elif data == "analytics_active":
-        await query.edit_message_text(active_users_traffic(), reply_markup=analytics_keyboard())
     elif data == "analytics_top":
         await query.edit_message_text(top_users_by_traffic(), reply_markup=analytics_keyboard())
     elif data == "analytics_chart_traffic":
@@ -258,6 +261,49 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.delete_message()
 
     # ══ SETTINGS ═══════════════════════════════════════════════════════════════
+    elif data == "whitelist_status":
+        await query.edit_message_text("🌐  Проверяю SNI нод и белый список РФ…\n⏳ Это займёт ~30 сек")
+        result = await check_whitelist_status()
+        text   = format_whitelist_status(result)
+        # Формируем клавиатуру с кнопками замены если есть проблемные ноды
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        buttons = []
+        for node_id, info in result.get("problem_nodes", {}).items():
+            buttons.append([InlineKeyboardButton(
+                f"🔄 Сменить SNI для {info['name']}",
+                callback_data=f"whitelist_fix_{node_id}",
+            )])
+        buttons.append([InlineKeyboardButton(
+            "🔄 Проверить снова", callback_data="whitelist_status"
+        )])
+        kb = InlineKeyboardMarkup(buttons) if buttons else None
+        await query.edit_message_text(text, reply_markup=kb)
+
+    elif data.startswith("whitelist_fix_"):
+        node_id = data[len("whitelist_fix_"):]
+        nodes_sni = get_nodes_sni()
+        info = nodes_sni.get(node_id)
+        if not info:
+            await query.edit_message_text("❌ Нода не найдена")
+            return
+        await query.edit_message_text(f"🔍 Ищу рабочий SNI для {info['name']}…")
+        new_sni = await asyncio.get_event_loop().run_in_executor(None, get_replacement_sni)
+        if not new_sni:
+            await query.edit_message_text("❌ Не найдено рабочих SNI. Попробуй позже.")
+            return
+        result = await asyncio.get_event_loop().run_in_executor(
+            None, update_node_sni, node_id, new_sni, ""
+        )
+        if "error" in result:
+            await query.edit_message_text(f"❌ Ошибка обновления: {result['error']}")
+        else:
+            await query.edit_message_text(
+                f"✅ SNI обновлён для {info['name']}\n\n"
+                f"Было: `{info['sni']}`\n"
+                f"Стало: `{new_sni}`",
+                parse_mode="Markdown",
+            )
+
     elif data == "settings_discover":
         await query.edit_message_text("🔍  Ищу ноды в панели…")
         nodes = api_get_nodes()
@@ -490,6 +536,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 async def post_init(application: Application):
     asyncio.ensure_future(monitor(application, ADMIN_ID))
+    asyncio.ensure_future(whitelist_monitor_loop(application, ADMIN_ID))
 
 
 def main():
