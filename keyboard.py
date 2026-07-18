@@ -59,9 +59,6 @@ def analytics_keyboard():
             InlineKeyboardButton("🏆 Топ",              callback_data="analytics_top"),
         ],
         [
-            InlineKeyboardButton("🟢 Активные (10м)",   callback_data="analytics_active"),
-        ],
-        [
             InlineKeyboardButton("🇫🇮 FI",              callback_data="analytics_fi"),
             InlineKeyboardButton("🇩🇪 GE",              callback_data="analytics_de"),
         ],
@@ -77,6 +74,7 @@ def settings_keyboard(daily_on: bool = True, reboot_on: bool = False):
     reboot_label = "♻️ Авторестарт: ✅" if reboot_on else "♻️ Авторестарт: ❌"
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔍 Найти ноды в панели",  callback_data="settings_discover")],
+        [InlineKeyboardButton("🌐 Whitelist Monitor",      callback_data="whitelist_status")],
         [
             InlineKeyboardButton("🔄 Рестарт всех нод",  callback_data="action_restart_all"),
             InlineKeyboardButton("💀 Panic restart",      callback_data="ops_panic"),
